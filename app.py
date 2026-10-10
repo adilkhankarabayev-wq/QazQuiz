@@ -1,69 +1,43 @@
 import csv
-from datetime import datetime
 from pathlib import Path
 import streamlit as st
 
-st.set_page_config(page_title='QazQuiz 2.0', page_icon='💻', layout='wide')
-DATA_FILE = Path(__file__).with_name('results.csv')
+st.set_page_config(page_title='QazQuiz | 1–11', page_icon='📘', layout='wide')
 
-LESSONS = {
-    5: [('Ақпарат және оның түрлері', 'Информация и её виды', [('Ақпаратты қабылдауға не көмектеседі?', 'Что помогает воспринимать информацию?', ['Сезім мүшелері', 'Органы чувств', 'Принтер'], 0), ('Мәтін қандай ақпарат түрі?', 'Какой вид информации — текст?', ['Мәтіндік', 'Текстовая', 'Дыбыстық'], 0)])],
-    6: [('Жүйелік блок және компьютер жады', 'Системный блок и память компьютера', [('Компьютердің миы қандай құрылғы?', 'Какое устройство называют мозгом компьютера?', ['Процессор', 'Монитор', 'Пернетақта'], 0), ('Қай жад ақпаратты уақытша сақтайды?', 'Какая память временно хранит данные?', ['Жедел жад (ОЗУ)', 'Тұрақты жад (ПЗУ)', 'SSD'], 0), ('Процессор жиілігі немен өлшенеді?', 'В чём измеряется частота процессора?', ['ГГц', 'ГБ', 'Пиксель'], 0)])],
-    7: [('Алгоритм және программалау', 'Алгоритмы и программирование', [('Алгоритм дегеніміз не?', 'Что такое алгоритм?', ['Қадамдар тізбегі', 'Последовательность шагов', 'Монитор'], 0)])],
-    8: [('Python негіздері', 'Основы Python', [('Python-да экранға шығару функциясы?', 'Какая функция выводит текст?', ['print()', 'input()', 'len()'], 0)])],
-    9: [('Деректер базасы', 'Базы данных', [('Деректер базасындағы жазба дегеніміз?', 'Что такое запись в базе данных?', ['Кесте жолы', 'Строка таблицы', 'Баған'], 0)])],
-    10: [('Ақпараттық қауіпсіздік', 'Информационная безопасность', [('Қауіпсіз пароль қандай?', 'Какой пароль безопаснее?', ['Ұзын әрі бірегей', 'Длинный и уникальный', '123456'], 0)])],
-    11: [('Машиналық оқыту', 'Машинное обучение', [('Машиналық оқыту неге сүйенеді?', 'На чём основано машинное обучение?', ['Деректер мен модельдерге', 'Данным и моделям', 'Тек мониторға'], 0)])],
-}
+@st.cache_data
+def load_lessons():
+    with (Path(__file__).parent / 'lessons.csv').open(encoding='utf-8-sig', newline='') as f:
+        return list(csv.DictReader(f))
 
-st.title('💻 QazQuiz 2.0')
+lessons = load_lessons()
 lang = st.sidebar.selectbox('Тіл / Язык', ['Қазақша', 'Русский'])
-kz = lang == 'Қазақша'
-student = st.sidebar.text_input('Оқушының аты-жөні' if kz else 'Имя и фамилия ученика')
-grade = st.sidebar.selectbox('Сынып' if kz else 'Класс', list(LESSONS.keys()))
-section = st.sidebar.radio('Бөлім' if kz else 'Раздел', ['Сабақтар', 'Нәтижелер'] if kz else ['Уроки', 'Результаты'])
+kk = lang == 'Қазақша'
+tr = (lambda a, b: a if kk else b)
+st.title('📘 QazQuiz — 1–11')
+st.caption(tr('2026–2027 оқу жылына арналған КТЖ сабақтарының каталогы', 'Каталог уроков КТП на 2026–2027 учебный год'))
+st.info(tr('Бұл нұсқада сабақ тақырыптары мен оқу мақсаттары берілген. Тест тапсырмалары кейін қосылады.', 'В этой версии доступны темы уроков и цели обучения. Тестовые задания будут добавлены позже.'))
 
-if section in ('Нәтижелер', 'Результаты'):
-    st.header('📊 Нәтижелер' if kz else '📊 Результаты')
-    if DATA_FILE.exists():
-        import pandas as pd
-        df = pd.read_csv(DATA_FILE)
-        if student.strip():
-            df = df[df['student'].str.casefold() == student.strip().casefold()]
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    else:
-        st.info('Әзірге нәтиже жоқ.' if kz else 'Результатов пока нет.')
-else:
-    st.header(f'{grade}-сынып' if kz else f'{grade} класс')
-    lesson_options = LESSONS[grade]
-    selected = st.selectbox('Сабақты таңдаңыз' if kz else 'Выберите урок', range(len(lesson_options)), format_func=lambda i: lesson_options[i][0 if kz else 1])
-    title_kz, title_ru, questions = lesson_options[selected]
-    st.subheader(title_kz if kz else title_ru)
-    st.caption('Бұл — демонстрациялық сабақ. Тақырыптар мен сұрақтар кезең-кезеңімен толықтырылады.' if kz else 'Это демонстрационный урок. Темы и вопросы будут добавляться постепенно.')
-    with st.form(f'quiz_{grade}_{selected}_{lang}'):
-        answers = []
-        for i, (q_kz, q_ru, options, correct) in enumerate(questions, 1):
-            st.markdown(f'**{i}. {q_kz if kz else q_ru}**')
-            # Each option has a distinct index, so duplicate translations do not affect scoring.
-            choice = st.radio('Жауап' if kz else 'Ответ', list(range(len(options))), format_func=lambda j, opts=options: opts[j], index=None, key=f'q_{grade}_{selected}_{lang}_{i}')
-            answers.append(choice)
-        submit = st.form_submit_button('Жауаптарды тексеру' if kz else 'Проверить ответы', type='primary')
-    if submit:
-        if not student.strip():
-            st.error('Алдымен аты-жөніңізді енгізіңіз.' if kz else 'Сначала введите имя и фамилию.')
-        elif any(a is None for a in answers):
-            st.warning('Барлық сұраққа жауап беріңіз.' if kz else 'Ответьте на все вопросы.')
-        else:
-            score = sum(a == q[3] for a, q in zip(answers, questions))
-            percent = round(100 * score / len(questions))
-            st.success(f'{"Нәтиже" if kz else "Результат"}: {score}/{len(questions)} ({percent}%)')
-            st.progress(percent / 100)
-            is_new = not DATA_FILE.exists()
-            with DATA_FILE.open('a', newline='', encoding='utf-8-sig') as f:
-                writer = csv.writer(f)
-                if is_new:
-                    writer.writerow(['date', 'student', 'grade', 'lesson', 'score', 'total', 'percent'])
-                writer.writerow([datetime.now().strftime('%Y-%m-%d %H:%M'), student.strip(), grade, title_kz, score, len(questions), percent])
-            st.info('Нәтиже сақталды.' if kz else 'Результат сохранён.')
-            if score == len(questions):
-                st.balloons()
+col1, col2, col3 = st.columns(3)
+with col1:
+    grade = st.selectbox(tr('Сынып', 'Класс'), list(range(1, 12)), index=5)
+with col2:
+    track = st.selectbox(tr('Бағыт', 'Направление'), ['ЖМБ', 'ҚГБ'] if grade >= 10 else ['Жалпы'], format_func=lambda x: ('ЕМН' if x == 'ЖМБ' else 'ОГН' if x == 'ҚГБ' else tr('Жалпы', 'Общее')) if not kk else x)
+with col3:
+    q = st.selectbox(tr('Тоқсан', 'Четверть'), [0, 1, 2, 3, 4], format_func=lambda x: tr('Барлығы', 'Все') if x == 0 else str(x))
+
+items = [r for r in lessons if r['language'] == ('kk' if kk else 'ru') and int(r['grade']) == grade and r['track'] == track and (q == 0 or int(r['quarter']) == q)]
+query = st.text_input(tr('Тақырып немесе оқу мақсаты бойынша іздеу', 'Поиск по теме или цели обучения'))
+if query.strip():
+    items = [r for r in items if query.casefold() in (r['topic'] + ' ' + r['objective']).casefold()]
+st.metric(tr('Табылған сабақтар', 'Найдено уроков'), len(items))
+if not items:
+    st.warning(tr('Бұл таңдау бойынша сабақ табылмады.', 'Уроки не найдены.'))
+for r in items:
+    with st.expander(f"{r['lesson_no']}. {r['topic']}"):
+        st.write('**' + tr('Бөлім', 'Раздел') + ':** ' + r['section'])
+        st.write('**' + tr('Оқу мақсаты', 'Цель обучения') + ':** ' + (r['objective'] or '—'))
+        st.write('**' + tr('Сағат', 'Часов') + ':** ' + (r['hours'] or '—'))
+        st.caption(tr('Дереккөз', 'Источник') + ': ' + r['source'])
+
+st.divider()
+st.caption(tr('Ескерту: қазақша және орысша КТЖ деректері өз файлдарынан бөлек алынған; тақырыптар реті әртүрлі болуы мүмкін.', 'Примечание: казахские и русские планы извлечены отдельно из исходных файлов; порядок тем может различаться.'))
