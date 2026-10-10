@@ -42,6 +42,22 @@ for r in items:
         # Бірінші интерактивті сабақ тек сәйкес оқу мақсатына тіркеледі.
         if grade == 6 and '6.1.1.1' in r['objective']:
             st.divider()
+                        image_dir = Path(__file__).parent / "images"
+
+            pictures = [
+                ("system_unit.png", "Жүйелік блок"),
+                ("cpu.png", "Процессор"),
+                ("ram.png", "Жедел жад (RAM)"),
+                ("rom.png", "Тұрақты жад (ROM)"),
+                ("storage.png", "HDD / SSD"),
+                ("cache.png", "Кэш-жад"),
+            ]
+
+            cols = st.columns(3)
+            for i, (filename, title) in enumerate(pictures):
+                with cols[i % 3]:
+                    st.image(str(image_dir / filename))
+                    st.caption(title)
             st.subheader(tr('🧠 Интерактивті сабақ', '🧠 Интерактивный урок'))
             st.write(tr(
                 'Процессор командаларды орындайды. Жедел жад (RAM) жұмыс істеп тұрған бағдарламалардың деректерін уақытша сақтайды; қуат өшсе, ондағы ақпарат жоғалады. ROM тұрақты нұсқауларды сақтайды. SSD/HDD файлдарды ұзақ мерзімге сақтайды. Кэш — процессорға жақын орналасқан өте жылдам шағын жад. Процессордың негізгі сипаттамаларына ядролар саны және тактілік жиілік жатады.',
