@@ -76,6 +76,51 @@ def login():
 
 
 
+
+def register_teacher():
+    """Create an unprivileged Supabase Auth account, subject to teacher approval."""
+    st.subheader("📝 Тіркелу / Регистрация")
+    st.info("Бұл тіркелу мұғалімдерге арналған сынақ нұсқасы. Жаңа аккаунт мұғалім ретінде тек әкімші мақұлдағаннан кейін жұмыс істейді. / Регистрация для учителей; доступ после подтверждения администратором.")
+    if not config():
+        st.error("SUPABASE_URL және SUPABASE_KEY Streamlit Secrets ішінде табылмады.")
+        return
+    with st.form("qz_teacher_signup"):
+        email = st.text_input("Email", key="qz_signup_email").strip().lower()
+        password = st.text_input("Пароль / Пароль", type="password", key="qz_signup_password")
+        repeat = st.text_input("Парольді қайталау / Повторите пароль", type="password")
+        submit = st.form_submit_button("Тіркелу / Зарегистрироваться")
+    if submit:
+        if len(email) > 254 or "@" not in email or email.startswith("@"):
+            st.warning("Email мекенжайын тексеріңіз. / Проверьте email.")
+        elif len(password) < 12:
+            st.warning("Пароль кемінде 12 таңба болуы керек. / Минимум 12 символов.")
+        elif password != repeat:
+            st.warning("Парольдер сәйкес емес. / Пароли не совпадают.")
+        else:
+            try:
+                api("POST", "/auth/v1/signup", payload={"email": email, "password": password})
+                st.session_state["qz_signup_pending_email"] = email
+                st.success("Тіркелу сұранысы қабылданды. Email-ді растаңыз, кейін әкімші мақұлдауын күтіңіз. / Проверьте почту и дождитесь одобрения.")
+            except (RuntimeError, requests.RequestException, ValueError):
+                st.error("Тіркелу аяқталмады. Email бұрын қолданылған болуы мүмкін немесе хат жіберу шектеуі іске қосылды. / Не удалось зарегистрироваться.")
+    st.caption("Егер Supabase Confirm signup хаты сілтеме арқылы келсе, сайтта растау үшін Authentication → Emails → Confirm signup үлгісіне {{ .Token }} кодын қосыңыз.")
+    with st.form("qz_confirm_signup"):
+        verify_email = st.text_input("Растау email / Email подтверждения", value=st.session_state.get("qz_signup_pending_email", ""))
+        code = st.text_input("Поштадағы код / Код из письма", max_chars=12)
+        verify = st.form_submit_button("Email-ді растау / Подтвердить email")
+    if verify:
+        verify_email = verify_email.strip().lower()
+        code = code.strip().replace(" ", "")
+        if "@" not in verify_email or not code.isdigit() or len(code) < 6:
+            st.warning("Email мен кодты тексеріңіз. / Проверьте email и код.")
+        else:
+            try:
+                api("POST", "/auth/v1/verify", payload={"type": "signup", "email": verify_email, "token": code})
+                st.success("Email расталды! Мұғалім кабинеті үшін әкімшінің мақұлдауы қажет. / Email подтверждён, ожидайте одобрения.")
+            except (RuntimeError, requests.RequestException, ValueError):
+                st.error("Код қате немесе мерзімі өткен. / Неверный или просроченный код.")
+
+
 def password_recovery():
     """Email one-time recovery code (requires {{ .Token }} in Supabase recovery template)."""
     st.subheader("🔑 Парольді қалпына келтіру / Восстановление пароля")
@@ -197,10 +242,12 @@ def show_teacher():
             st.rerun()
         teacher_panel(session)
     else:
-        auth_mode = st.radio("Аккаунт / Аккаунт", ["Кіру / Войти", "Парольді қалпына келтіру / Сброс пароля"],
-                             horizontal=True, key="qz_teacher_auth_mode")
+        auth_mode = st.radio("Аккаунт / Аккаунт", ["Кіру / Войти", "Тіркелу / Регистрация", "Парольді қалпына келтіру / Сброс пароля"],
+                             key="qz_teacher_auth_mode")
         if auth_mode.startswith("Кіру"):
             login()
+        elif auth_mode.startswith("Тіркелу"):
+            register_teacher()
         else:
             password_recovery()
 
