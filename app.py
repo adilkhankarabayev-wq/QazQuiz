@@ -1,4 +1,4 @@
-"""QazQuiz 5.0 — public lesson catalog and Supabase teacher login (pilot).
+"""QazQuiz 6.0 — public lesson catalog and Supabase teacher login (pilot).
 Teacher login uses Supabase Auth and per-user RLS, never a service-role key.
 Do not use real student data until legal/privacy/security review is complete.
 """
@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="QazQuiz 5.0", page_icon="📘", layout="wide")
+st.set_page_config(page_title="QazQuiz 6.0", page_icon="📘", layout="wide")
 
 
 def config():
@@ -227,7 +227,38 @@ def teacher_panel(session):
         st.dataframe(classes, hide_index=True, use_container_width=True)
     else:
         st.info("Әзірге сынып жоқ / Пока классов нет")
-    st.info("Оқушыларға логин беру және нәтижелерді сақтау келесі кезеңде қосылады. ")
+    st.subheader("📊 Нәтижелер / Результаты")
+    st.caption("Тек өз оқушыларыңыздың Supabase-қа бұрын жазылған нәтижелері көрсетіледі.")
+    try:
+        pupils = api("GET", "/rest/v1/students", token=token,
+                     params={"select": "id,display_name,class_id", "teacher_id": "eq." + uid, "limit": "1000"}) or []
+        names = {p["id"]: p for p in pupils}
+        result_rows = []
+        if names:
+            # RLS on results limits teacher to their own students.
+            data = api("GET", "/rest/v1/results", token=token,
+                       params={"select": "student_id,lesson_key,score,max_score,created_at",
+                               "order": "created_at.desc", "limit": "1000"}) or []
+            for item in data:
+                student = names.get(item["student_id"])
+                if student:
+                    result_rows.append({"Оқушы": student["display_name"],
+                        "Сынып ID": student["class_id"], "Сабақ": item["lesson_key"],
+                        "Ұпай": f'{item["score"]}/{item["max_score"]}',
+                        "Уақыты": item["created_at"]})
+        if result_rows:
+            st.dataframe(result_rows, hide_index=True, use_container_width=True)
+            import io
+            import pandas as pd
+            stream = io.BytesIO()
+            pd.DataFrame(result_rows).to_excel(stream, index=False)
+            st.download_button("Excel жүктеу / Скачать Excel", data=stream.getvalue(),
+                               file_name="qazquiz_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        else:
+            st.info("Әзірге сақталған нәтиже жоқ. Оқушы аккаунттары мен нәтижені жазу келесі кезеңде қосылады.")
+    except (RuntimeError, requests.RequestException, ValueError, KeyError):
+        st.warning("Нәтижелерді алу мүмкін болмады. Supabase RLS ережелерін тексеріңіз.")
+    st.info("Оқушы аккаунттарын құру және нәтижелерді сақтау әлі қосылмаған.")
 
 
 def show_teacher():
@@ -250,6 +281,52 @@ def show_teacher():
             register_teacher()
         else:
             password_recovery()
+
+@st.cache_data
+def load_question_bank():
+    file = Path(__file__).parent / "questions.csv"
+    if not file.exists():
+        return []
+    with file.open(encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def render_bank_questions(lesson, language):
+    bank = [x for x in load_question_bank()
+            if x.get("language") == language
+            and x.get("grade") == lesson["grade"]
+            and x.get("track") == lesson["track"]
+            and x.get("lesson_no") == lesson["lesson_no"]
+            and x.get("quarter") == lesson["quarter"]]
+    if not bank:
+        return
+    st.subheader("📝 Тақырыптық тапсырмалар / Задания по теме")
+    form_id = "bank_" + "_".join([language, lesson["grade"], lesson["track"],
+                                    lesson["quarter"], lesson["lesson_no"]])
+    with st.form(form_id):
+        responses = []
+        for i, x in enumerate(bank, 1):
+            opts = [x.get("option_a", ""), x.get("option_b", ""), x.get("option_c", "")]
+            responses.append(st.radio(f'{i}. {x["question"]}', opts, index=None, key=form_id+str(i)))
+        submit = st.form_submit_button("Тексеру / Проверить")
+    if submit:
+        if any(v is None for v in responses):
+            st.warning("Барлық сұраққа жауап беріңіз / Ответьте на все вопросы")
+        else:
+            score = 0
+            for i, (x, response) in enumerate(zip(bank, responses), 1):
+                correct_index = {"A":0, "B":1, "C":2}.get(x.get("correct", "").upper())
+                if correct_index is None:
+                    st.error(f"{i}: тапсырма деректерінде қате бар")
+                    continue
+                expected = [x["option_a"],x["option_b"],x["option_c"]][correct_index]
+                if response == expected:
+                    score += 1
+                else:
+                    st.error(f'{i}. Дұрыс жауап / Правильный ответ: {expected}. {x.get("explanation", "")}')
+            st.success(f"Нәтиже / Результат: {score}/{len(bank)}")
+            st.caption("Бұл жаттығу нәтижесі серверде сақталмайды / Результат не сохраняется")
+
 
 def show_catalog():
     @st.cache_data
@@ -286,6 +363,8 @@ def show_catalog():
             st.write('**' + tr('Оқу мақсаты', 'Цель обучения') + ':** ' + (r['objective'] or '—'))
             st.write('**' + tr('Сағат', 'Часов') + ':** ' + (r['hours'] or '—'))
             st.caption(tr('Дереккөз', 'Источник') + ': ' + r['source'])
+            if not (grade == 6 and '6.1.1.1' in r['objective']):
+                render_bank_questions(r, 'kk' if kk else 'ru')
 
             # Бірінші интерактивті сабақ тек сәйкес оқу мақсатына тіркеледі.
             if grade == 6 and '6.1.1.1' in r['objective']:
