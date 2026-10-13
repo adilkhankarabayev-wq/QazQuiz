@@ -1,13 +1,14 @@
-"""QazQuiz 6.0 — public lesson catalog and Supabase teacher login (pilot).
+"""QazQuiz 6.1 — public lesson catalog and Supabase teacher login (pilot).
 Teacher login uses Supabase Auth and per-user RLS, never a service-role key.
 Do not use real student data until legal/privacy/security review is complete.
 """
 import csv
+from urllib.parse import urlparse, parse_qs
 from pathlib import Path
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="QazQuiz 6.0", page_icon="📘", layout="wide")
+st.set_page_config(page_title="QazQuiz 6.1", page_icon="📘", layout="wide")
 
 
 def config():
@@ -122,65 +123,62 @@ def register_teacher():
 
 
 def password_recovery():
-    """Email one-time recovery code (requires {{ .Token }} in Supabase recovery template)."""
+    """Recover via a fresh original Supabase recovery link, without browser fragment handling."""
     st.subheader("🔑 Парольді қалпына келтіру / Восстановление пароля")
-    st.caption("Supabase хатына келген бір реттік кодты пайдаланыңыз. Парольді ешкімге жібермеңіз.")
+    st.info("Supabase әдепкі Reset password хатының сілтемесімен жұмыс істейді. "
+            "Поштадағы сілтемені баспай, оң батырмамен «Копировать адрес ссылки» таңдаңыз. "
+            "Сілтемені тек төмендегі жасырын өріске енгізіңіз. Чатқа жібермеңіз.")
     if not config():
         st.error("SUPABASE_URL және SUPABASE_KEY Streamlit Secrets ішінде табылмады.")
         return
 
-    with st.form("request_recovery_code"):
-        email = st.text_input("Email", value=st.session_state.get("qz_recovery_email", ""),
-                              key="qz_recovery_email_input")
-        requested = st.form_submit_button("Код жіберу / Отправить код")
+    with st.form("qz_request_recovery"):
+        email = st.text_input("Email", key="qz_recovery_email_new").strip().lower()
+        requested = st.form_submit_button("Жаңа сілтеме жіберу / Отправить новую ссылку")
     if requested:
-        email = email.strip().lower()
         if "@" not in email or len(email) > 254:
-            st.warning("Email мекенжайын тексеріңіз. / Проверьте адрес email.")
+            st.warning("Email мекенжайын тексеріңіз.")
         else:
             try:
                 api("POST", "/auth/v1/recover", payload={"email": email})
-                st.session_state["qz_recovery_email"] = email
-                st.success("Егер бұл email тіркелген болса, поштаңызға қалпына келтіру хаты жіберілді. "
-                           "/ Если адрес зарегистрирован, письмо отправлено.")
+                st.success("Егер email тіркелген болса, хат жіберіледі. / Если адрес существует, письмо будет отправлено.")
             except (RuntimeError, requests.RequestException, ValueError):
-                st.error("Хатты жіберу мүмкін болмады. Кейінірек қайталап көріңіз. "
-                         "/ Не удалось отправить письмо.")
+                st.error("Хат жіберілмеді. Supabase хат жіберу шектеулерін тексеріңіз.")
 
-    st.info("Хатта 6 таңбалы код болуы үшін Supabase → Authentication → Emails → "
-            "Reset Password үлгісіне {{ .Token }} енгізу қажет. "
-            "Бұрынғы сілтеме түріндегі хат бұл өріске жарамайды.")
-    with st.form("confirm_recovery_code"):
-        recovery_email = st.text_input("Тіркелген email / Email аккаунта",
-                                       value=st.session_state.get("qz_recovery_email", ""),
-                                       key="qz_recovery_confirm_email")
-        code = st.text_input("Поштадағы бір реттік код / Код из письма", max_chars=12)
-        new_password = st.text_input("Жаңа пароль / Новый пароль", type="password")
-        repeat_password = st.text_input("Парольді қайталаңыз / Повторите пароль", type="password")
-        confirmed = st.form_submit_button("Парольді өзгерту / Изменить пароль")
-    if confirmed:
-        recovery_email = recovery_email.strip().lower()
-        code = code.strip().replace(" ", "")
-        if "@" not in recovery_email or not code.isdigit() or len(code) < 6:
-            st.warning("Email мен бір реттік кодты тексеріңіз. / Проверьте email и код.")
-        elif len(new_password) < 12:
-            st.warning("Жаңа пароль кемінде 12 таңбадан тұруы керек. / Минимум 12 символов.")
-        elif new_password != repeat_password:
-            st.warning("Парольдер сәйкес емес. / Пароли не совпадают.")
-        else:
-            try:
-                verified = api("POST", "/auth/v1/verify", payload={
-                    "type": "recovery", "email": recovery_email, "token": code})
-                token = verified.get("access_token") if isinstance(verified, dict) else None
-                if not token:
-                    raise RuntimeError("Recovery verification returned no session")
-                api("PUT", "/auth/v1/user", token=token, payload={"password": new_password})
-                st.session_state.pop("qz_recovery_email", None)
-                st.success("Пароль өзгертілді! Енді жоғарыдан «Кіру / Войти» таңдап, "
-                           "жаңа парольмен кіріңіз. / Пароль изменён, войдите с новым паролем.")
-            except (RuntimeError, requests.RequestException, ValueError):
-                st.error("Код жарамсыз, мерзімі өткен немесе пароль жаңартылмады. "
-                         "Жаңа код сұраңыз. / Код недействителен, истёк или пароль не обновлён.")
+    with st.form("qz_use_recovery_link", clear_on_submit=True):
+        recovery_link = st.text_input("ЖАҢА хаттағы Reset password сілтемесі / Ссылка из нового письма",
+                                      type="password", help="Сілтемені тек осы жерге қойыңыз. Құпия ақпарат.")
+        password = st.text_input("Жаңа пароль / Новый пароль", type="password")
+        repeat = st.text_input("Парольді қайталау / Повторить пароль", type="password")
+        submitted = st.form_submit_button("Парольді сақтау / Сохранить пароль")
+    if submitted:
+        if len(password) < 12:
+            st.warning("Пароль кемінде 12 таңбадан тұруы керек.")
+            return
+        if password != repeat:
+            st.warning("Парольдер сәйкес келмейді.")
+            return
+        try:
+            raw = recovery_link.strip().replace("&amp;", "&")
+            link = urlparse(raw)
+            expected = urlparse(config()[0])
+            query = parse_qs(link.query)
+            token_hash = query.get("token", [""])[0] or query.get("token_hash", [""])[0]
+            if (link.scheme != "https" or link.netloc != expected.netloc or
+                    link.path != "/auth/v1/verify" or
+                    query.get("type", [""])[0] != "recovery" or
+                    not re.fullmatch(r"[0-9a-fA-F]{32,128}", token_hash)):
+                st.error("Бұл Supabase қалпына келтіру сілтемесі емес. Жаңа хаттағы бастапқы сілтемені көшіріңіз.")
+                return
+            verified = api("POST", "/auth/v1/verify", payload={
+                "type": "recovery", "token_hash": token_hash})
+            access_token = verified.get("access_token") if isinstance(verified, dict) else None
+            if not access_token:
+                raise RuntimeError("Recovery token was not accepted")
+            api("PUT", "/auth/v1/user", token=access_token, payload={"password": password})
+            st.success("Пароль жаңартылды! «Кіру / Войти» бөлімінде жаңа парольмен кіріңіз.")
+        except (RuntimeError, requests.RequestException, ValueError):
+            st.error("Сілтеме жарамсыз, қолданылған немесе мерзімі өткен болуы мүмкін. Жаңа хат сұраңыз.")
 
 
 def teacher_panel(session):
